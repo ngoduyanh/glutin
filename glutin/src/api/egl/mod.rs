@@ -8,6 +8,7 @@
     target_os = "openbsd",
 ))]
 
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
@@ -36,7 +37,7 @@ use crate::api::dlloader::{SymTrait, SymWrapper};
 use crate::Rect;
 use crate::{
     Api, ContextError, CreationError, GlAttributes, GlRequest, PixelFormat,
-    PixelFormatRequirements, ReleaseBehavior, Robustness,
+    PixelFormatRequirements, ReleaseBehavior, Robustness, VSyncError, VSyncMode,
 };
 
 #[derive(Clone)]
@@ -152,7 +153,11 @@ pub struct Context {
     surface: Option<parking_lot::Mutex<ffi::egl::types::EGLSurface>>,
     api: Api,
     pixel_format: PixelFormat,
+    swap_interval_range: SwapIntervalRange,
 }
+
+#[derive(Debug)]
+struct SwapIntervalRange(i32, i32);
 
 fn get_egl_version(
     display: ffi::egl::types::EGLDisplay,
@@ -406,7 +411,7 @@ impl Context {
         // binding the right API and choosing the version
         let (version, api) = unsafe { bind_and_get_api(opengl, egl_version)? };
 
-        let (config_id, pixel_format) = unsafe {
+        let (config_id, pixel_format, swap_interval_range) = unsafe {
             choose_fbconfig(
                 display,
                 &egl_version,
@@ -428,6 +433,7 @@ impl Context {
             version,
             config_id,
             pixel_format,
+            swap_interval_range,
         })
     }
 
@@ -486,6 +492,29 @@ impl Context {
     #[inline]
     pub fn get_api(&self) -> Api {
         self.api
+    }
+
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        let swap_interval = mode.get_swap_interval();
+        let SwapIntervalRange(min, max) = self.swap_interval_range;
+        swap_interval >= min && swap_interval <= max
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        unsafe {
+            let surface = self.surface.as_ref().map(|s| *s.lock()).unwrap_or(ffi::egl::NO_SURFACE);
+            let _guard = MakeCurrentGuard::new(self.display, surface, surface, self.context)
+                .map_err(|e| VSyncError::ContextError(ContextError::OsError(e)))?;
+
+            let egl = EGL.as_ref().unwrap();
+            if egl.SwapInterval(self.display, mode.get_swap_interval())
+                == ffi::egl::FALSE
+            {
+                panic!("finish_impl: eglSwapInterval failed: 0x{:x}", egl.GetError());
+            }
+
+            Ok(())
+        }
     }
 
     #[inline]
@@ -705,6 +734,7 @@ pub struct ContextPrototype<'a> {
     version: Option<(u8, u8)>,
     config_id: ffi::egl::types::EGLConfig,
     pixel_format: PixelFormat,
+    swap_interval_range: SwapIntervalRange,
 }
 
 #[cfg(any(
@@ -906,17 +936,19 @@ impl<'a> ContextPrototype<'a> {
 
         if let Some(surface) = surface {
             // VSync defaults to enabled; disable it if it was not requested.
-            if !self.opengl.vsync {
-                let _guard = MakeCurrentGuard::new(self.display, surface, surface, context)
-                    .map_err(CreationError::OsError)?;
+            // if !self.opengl.vsync {
+            let _guard = MakeCurrentGuard::new(self.display, surface, surface, context)
+                .map_err(CreationError::OsError)?;
 
-                let egl = EGL.as_ref().unwrap();
-                unsafe {
-                    if egl.SwapInterval(self.display, 0) == ffi::egl::FALSE {
-                        panic!("finish_impl: eglSwapInterval failed: 0x{:x}", egl.GetError());
-                    }
+            let egl = EGL.as_ref().unwrap();
+            unsafe {
+                if egl.SwapInterval(self.display, self.opengl.vsync.get_swap_interval())
+                    == ffi::egl::FALSE
+                {
+                    panic!("finish_impl: eglSwapInterval failed: 0x{:x}", egl.GetError());
                 }
             }
+            // }
         }
 
         Ok(Context {
@@ -925,6 +957,7 @@ impl<'a> ContextPrototype<'a> {
             surface: surface.map(parking_lot::Mutex::new),
             api: self.api,
             pixel_format: self.pixel_format,
+            swap_interval_range: self.swap_interval_range,
         })
     }
 }
@@ -938,7 +971,7 @@ unsafe fn choose_fbconfig<F>(
     surface_type: SurfaceType,
     opengl: &GlAttributes<&Context>,
     mut config_selector: F,
-) -> Result<(ffi::egl::types::EGLConfig, PixelFormat), CreationError>
+) -> Result<(ffi::egl::types::EGLConfig, PixelFormat, SwapIntervalRange), CreationError>
 where
     F: FnMut(
         Vec<ffi::egl::types::EGLConfig>,
@@ -1093,11 +1126,11 @@ where
     }
 
     // We're interested in those configs which allow our desired VSync.
-    let desired_swap_interval = if opengl.vsync { 1 } else { 0 };
+    let desired_swap_interval = opengl.vsync.get_swap_interval();
 
-    let config_ids = config_ids
+    let mut config_ids_with_range = config_ids
         .into_iter()
-        .filter(|&config| {
+        .filter_map(|config| {
             let mut min_swap_interval = 0;
             let _res = egl.GetConfigAttrib(
                 display,
@@ -1107,7 +1140,7 @@ where
             );
 
             if desired_swap_interval < min_swap_interval {
-                return false;
+                return None;
             }
 
             let mut max_swap_interval = 0;
@@ -1119,12 +1152,13 @@ where
             );
 
             if desired_swap_interval > max_swap_interval {
-                return false;
+                return None;
             }
 
-            true
+            Some((config, SwapIntervalRange(min_swap_interval, max_swap_interval)))
         })
-        .collect::<Vec<_>>();
+        .collect::<HashMap<_, _>>();
+    let config_ids = config_ids_with_range.iter().map(|(i, _)| *i).collect::<Vec<_>>();
 
     if config_ids.is_empty() {
         return Err(CreationError::NoAvailablePixelFormat);
@@ -1168,7 +1202,8 @@ where
         srgb: false, // TODO: use EGL_KHR_gl_colorspace to know that
     };
 
-    Ok((config_id, desc))
+    let swap_interval_range = config_ids_with_range.remove(&config_id).unwrap();
+    Ok((config_id, desc, swap_interval_range))
 }
 
 unsafe fn create_context(

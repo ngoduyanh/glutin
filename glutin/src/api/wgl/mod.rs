@@ -4,7 +4,7 @@ mod make_current_guard;
 
 use crate::{
     Api, ContextError, CreationError, GlAttributes, GlProfile, GlRequest, PixelFormat,
-    PixelFormatRequirements, ReleaseBehavior, Robustness,
+    PixelFormatRequirements, ReleaseBehavior, Robustness, VSyncError, VSyncMode,
 };
 
 use self::make_current_guard::CurrentContextGuard;
@@ -25,9 +25,13 @@ use std::os::windows::ffi::OsStrExt;
 /// A WGL context.
 ///
 /// Note: should be destroyed before its window.
-#[derive(Debug)]
 pub struct Context {
     context: ContextWrapper,
+
+    // this doesn't derive the Debug trait
+    extra_functions: gl::wgl_extra::Wgl,
+
+    supports_adaptive_vsync: bool,
 
     hdc: HDC,
 
@@ -39,6 +43,18 @@ pub struct Context {
 
     /// The pixel format that has been used to create this context.
     pixel_format: PixelFormat,
+}
+
+impl std::fmt::Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("context", &self.context)
+            .field("supports_adaptive_vsync", &self.supports_adaptive_vsync)
+            .field("hdc", &self.hdc)
+            .field("gl_library", &self.gl_library)
+            .field("pixel_format", &self.pixel_format)
+            .finish()
+    }
 }
 
 /// A simple wrapper that destroys the window when it is destroyed.
@@ -141,12 +157,22 @@ impl Context {
         if extensions.split(' ').any(|i| i == "WGL_EXT_swap_control") {
             let _guard = CurrentContextGuard::make_current(hdc, context.0)?;
 
-            if extra_functions.SwapIntervalEXT(if opengl.vsync { 1 } else { 0 }) == 0 {
+            if extra_functions.SwapIntervalEXT(opengl.vsync.get_swap_interval()) == 0 {
                 return Err(CreationError::OsError("wglSwapIntervalEXT failed".to_string()));
             }
         }
 
-        Ok(Context { context, hdc, gl_library, pixel_format })
+        let supports_adaptive_vsync =
+            extensions.split(' ').any(|i| i == "WGL_EXT_swap_control_tear");
+
+        Ok(Context {
+            context,
+            hdc,
+            gl_library,
+            pixel_format,
+            extra_functions,
+            supports_adaptive_vsync,
+        })
     }
 
     /// Returns the raw HGLRC.
@@ -207,6 +233,30 @@ impl Context {
     pub fn get_api(&self) -> Api {
         // FIXME: can be opengl es
         Api::OpenGl
+    }
+
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        let swap_interval = mode.get_swap_interval();
+        match swap_interval {
+            -1 => self.supports_adaptive_vsync,
+            _ => true,
+        }
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        unsafe {
+            let _guard = CurrentContextGuard::make_current(self.hdc, self.get_hglrc()).map_err(
+                |e| match e {
+                    CreationError::OsError(e) => VSyncError::ContextError(ContextError::OsError(e)),
+                    _ => panic!("invalid error"),
+                },
+            )?;
+            if self.extra_functions.SwapIntervalEXT(mode.get_swap_interval()) == 0 {
+                Err(VSyncError::UnsupportedVSyncMode(mode))
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[inline]

@@ -120,7 +120,7 @@ impl Context {
             };
 
             gl_context.setView_(view);
-            let value = if gl_attr.vsync { 1 } else { 0 };
+            let value = gl_attr.vsync.get_swap_interval();
             gl_context.setValues_forParameter_(
                 &value,
                 appkit::NSOpenGLContextParameter::NSOpenGLCPSwapInterval,
@@ -279,6 +279,14 @@ impl Context {
     pub fn get_api(&self) -> crate::Api {
         crate::Api::OpenGl
     }
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        todo!()
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        todo!()
+    }
+
 
     #[inline]
     pub fn get_pixel_format(&self) -> PixelFormat {

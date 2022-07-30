@@ -2,7 +2,7 @@
 
 use crate::{
     Api, ContextCurrentState, ContextError, CreationError, GlAttributes, GlRequest, NotCurrent,
-    PixelFormat, PixelFormatRequirements, Rect,
+    PixelFormat, PixelFormatRequirements, Rect, VSyncMode, VSyncError,
 };
 
 use crate::api::egl::{Context as EglContext, NativeDisplay, SurfaceType as EglSurfaceType, EGL};
@@ -261,6 +261,26 @@ impl Context {
             Context::Egl(ref c)
             | Context::HiddenWindowEgl(_, ref c)
             | Context::EglPbuffer(ref c) => c.get_api(),
+        }
+    }
+
+    #[inline]
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        match *self {
+            Context::Wgl(ref c) | Context::HiddenWindowWgl(_, ref c) => c.supports_vsync_mode(mode),
+            Context::Egl(ref c)
+            | Context::HiddenWindowEgl(_, ref c)
+            | Context::EglPbuffer(ref c) => c.supports_vsync_mode(mode),
+        }
+    }
+
+    #[inline]
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        match *self {
+            Context::Wgl(ref c) | Context::HiddenWindowWgl(_, ref c) => c.set_vsync_mode(mode),
+            Context::Egl(ref c)
+            | Context::HiddenWindowEgl(_, ref c)
+            | Context::EglPbuffer(ref c) => c.set_vsync_mode(mode),
         }
     }
 

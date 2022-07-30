@@ -151,6 +151,16 @@ impl Context {
     }
 
     #[inline]
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        (**self).supports_vsync_mode(mode)
+    }
+
+    #[inline]
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        (**self).set_vsync_mode(mode)
+    }
+
+    #[inline]
     pub unsafe fn raw_handle(&self) -> ffi::EGLContext {
         (**self).raw_handle()
     }

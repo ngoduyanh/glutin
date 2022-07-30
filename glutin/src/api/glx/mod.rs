@@ -157,6 +157,14 @@ impl Context {
         crate::Api::OpenGl
     }
 
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        todo!()
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        todo!()
+    }
+
     #[inline]
     pub unsafe fn raw_handle(&self) -> ffi::GLXContext {
         self.context
@@ -380,7 +388,7 @@ impl<'a> ContextPrototype<'a> {
         let (extra_functions, context) = self.create_context()?;
 
         // vsync
-        let swap_mode = if self.opengl.vsync { 1 } else { 0 };
+        let swap_mode = self.opengl.vsync.get_swap_interval();
 
         let _guard =
             MakeCurrentGuard::new(&self.xconn, window, context).map_err(CreationError::OsError)?;

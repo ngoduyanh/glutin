@@ -606,6 +606,22 @@ impl Context {
     }
 
     #[inline]
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        match self.context {
+            X11Context::Glx(ref ctx) => ctx.supports_vsync_mode(mode),
+            X11Context::Egl(ref ctx) => ctx.supports_vsync_mode(mode),
+        }
+    }
+
+    #[inline]
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        match self.context {
+            X11Context::Glx(ref ctx) => ctx.set_vsync_mode(mode),
+            X11Context::Egl(ref ctx) => ctx.set_vsync_mode(mode),
+        }
+    }
+
+    #[inline]
     pub unsafe fn raw_handle(&self) -> &X11Context {
         &self.context
     }

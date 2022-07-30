@@ -32,6 +32,25 @@ pub struct Context<T: ContextCurrentState> {
     pub(crate) phantom: PhantomData<T>,
 }
 
+#[derive(Debug)]
+pub enum VSyncError {
+    ContextError(ContextError),
+    UnsupportedVSyncMode(VSyncMode),
+}
+
+impl std::fmt::Display for VSyncError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            VSyncError::ContextError(err) => write!(formatter, "{}", err),
+            VSyncError::UnsupportedVSyncMode(mode) => {
+                write!(formatter, "{:?} vsync mode not supported", mode)
+            }
+        }
+    }
+}
+
+impl std::error::Error for VSyncError {}
+
 impl<T: ContextCurrentState> Context<T> {
     /// See [`ContextWrapper::make_current()`].
     pub unsafe fn make_current(self) -> Result<Context<PossiblyCurrent>, (Self, ContextError)> {
@@ -67,6 +86,14 @@ impl<T: ContextCurrentState> Context<T> {
     /// See [`ContextWrapper::get_api()`].
     pub fn get_api(&self) -> Api {
         self.context.get_api()
+    }
+
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        self.context.supports_vsync_mode(mode)
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        self.context.set_vsync_mode(mode)
     }
 }
 

@@ -3,13 +3,14 @@ mod support;
 use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
-use glutin::ContextBuilder;
+use glutin::{ContextBuilder, VSyncMode};
 
 fn main() {
     let el = EventLoop::new();
     let wb = WindowBuilder::new().with_title("A fantastic window!");
 
-    let windowed_context = ContextBuilder::new().with_vsync(true).build_windowed(wb, &el).unwrap();
+    let windowed_context =
+        ContextBuilder::new().with_vsync(VSyncMode::On).build_windowed(wb, &el).unwrap();
 
     let windowed_context = unsafe { windowed_context.make_current().unwrap() };
 

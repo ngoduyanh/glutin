@@ -147,6 +147,14 @@ impl Context {
         self.0.egl_context.get_api()
     }
 
+    pub fn supports_vsync_mode(&self, mode: VSyncMode) -> bool {
+        self.egl_context.supports_vsync_mode(mode)
+    }
+
+    pub fn set_vsync_mode(&self, mode: VSyncMode) -> Result<(), VSyncError> {
+        self.egl_context.set_vsync_mode(mode)
+    }
+
     #[inline]
     pub fn get_pixel_format(&self) -> PixelFormat {
         self.0.egl_context.get_pixel_format()

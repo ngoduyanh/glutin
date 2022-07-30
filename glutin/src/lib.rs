@@ -160,7 +160,7 @@ impl<'a, T: ContextCurrentState> ContextBuilder<'a, T> {
     ///
     /// By default, vsync is not enabled.
     #[inline]
-    pub fn with_vsync(mut self, vsync: bool) -> Self {
+    pub fn with_vsync(mut self, vsync: VSyncMode) -> Self {
         self.gl_attr.vsync = vsync;
         self
     }
@@ -580,6 +580,25 @@ impl Default for PixelFormatRequirements {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum VSyncMode {
+    Adaptive,
+    On,
+    Off,
+    SwapInterval(i8),
+}
+
+impl VSyncMode {
+    pub fn get_swap_interval(&self) -> i32 {
+        match &self {
+            VSyncMode::Adaptive => -1,
+            VSyncMode::Off => 0,
+            VSyncMode::On => 1,
+            VSyncMode::SwapInterval(interval) => *interval as i32,
+        }
+    }
+}
+
 /// Attributes to use when creating an OpenGL [`Context`].
 #[derive(Clone, Debug)]
 pub struct GlAttributes<S> {
@@ -616,8 +635,8 @@ pub struct GlAttributes<S> {
     /// [`ContextWrapper::swap_buffers()`] will block until the screen refreshes.
     /// This is typically used to prevent screen tearing.
     ///
-    /// The default is [`false`].
-    pub vsync: bool,
+    /// The default is [`VSyncMode::Off`].
+    pub vsync: VSyncMode,
 }
 
 impl<S> GlAttributes<S> {
@@ -660,7 +679,7 @@ impl<S> Default for GlAttributes<S> {
             profile: None,
             debug: cfg!(debug_assertions),
             robustness: Robustness::NotRobust,
-            vsync: false,
+            vsync: VSyncMode::Off,
         }
     }
 }
